@@ -56,6 +56,27 @@ fun LiveTvScreen() {
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val selectedCountry by viewModel.selectedCountry.collectAsState()
     
+    // PRELOAD LOGIC: Find next and previous channels
+    val nextChannel = remember(channels, selectedChannel) {
+        if (channels.isEmpty() || selectedChannel == null) null
+        else {
+            val index = channels.indexOf(selectedChannel)
+            if (index == -1) null 
+            else if (index == channels.size - 1) channels.first()
+            else channels[index + 1]
+        }
+    }
+    
+    val prevChannel = remember(channels, selectedChannel) {
+        if (channels.isEmpty() || selectedChannel == null) null
+        else {
+            val index = channels.indexOf(selectedChannel)
+            if (index == -1) null
+            else if (index == 0) channels.last()
+            else channels[index - 1]
+        }
+    }
+    
     // UI States
     var isChannelListVisible by remember { mutableStateOf(false) }
     var isCategoryListVisible by remember { mutableStateOf(false) }
@@ -131,8 +152,9 @@ fun LiveTvScreen() {
             ) {
                 VideoPlayer(
                     channel = selectedChannel,
-                    modifier = Modifier.fillMaxSize(),
-                    onStateChanged = { /* Handle buffering if needed here */ }
+                    nextChannel = nextChannel,
+                    prevChannel = prevChannel,
+                    modifier = Modifier.fillMaxSize()
                 )
             }
         }
@@ -447,6 +469,8 @@ fun SidebarContainer(
 @Composable
 fun VideoPlayer(
     channel: Channel?,
+    nextChannel: Channel? = null,
+    prevChannel: Channel? = null,
     modifier: Modifier = Modifier,
     onStateChanged: (Int) -> Unit = {}
 ) {
@@ -483,7 +507,6 @@ fun VideoPlayer(
                     
                     override fun onPlayerError(error: PlaybackException) {
                         // Attempt to recover from errors by re-preparing
-                        // This is common for IPTV streams that timeout
                         prepare()
                         play()
                     }
@@ -491,22 +514,32 @@ fun VideoPlayer(
             }
     }
 
-    // Update media item when channel changes
+    // Helper to create MediaItem for Live Stream
+    fun createMediaItem(c: Channel): MediaItem {
+        return MediaItem.Builder()
+            .setUri(c.streamUrl)
+            .setLiveConfiguration(
+                MediaItem.LiveConfiguration.Builder()
+                    .setTargetOffsetMs(20000)
+                    .setMinOffsetMs(10000)
+                    .setMaxOffsetMs(40000)
+                    .build()
+            )
+            .setMimeType(MimeTypes.APPLICATION_M3U8)
+            .build()
+    }
+
+    // Update media items when channel changes
     LaunchedEffect(channel) {
         if (channel != null) {
-            val mediaItem = MediaItem.Builder()
-                .setUri(channel.streamUrl)
-                .setLiveConfiguration(
-                    MediaItem.LiveConfiguration.Builder()
-                        .setTargetOffsetMs(20000) // 20s target
-                        .setMinOffsetMs(10000)   // 10s min
-                        .setMaxOffsetMs(40000)   // 40s max
-                        .build()
-                )
-                .setMimeType(MimeTypes.APPLICATION_M3U8) // Force HLS for better sync
-                .build()
-                
-            exoPlayer.setMediaItem(mediaItem)
+            val items = mutableListOf<MediaItem>()
+            items.add(createMediaItem(channel)) // Current (Index 0)
+            
+            // Add next/prev to playlist for preloading
+            nextChannel?.let { items.add(createMediaItem(it)) }
+            prevChannel?.let { items.add(createMediaItem(it)) }
+            
+            exoPlayer.setMediaItems(items)
             exoPlayer.prepare()
         } else {
             exoPlayer.stop()

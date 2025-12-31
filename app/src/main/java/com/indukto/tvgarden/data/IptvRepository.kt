@@ -16,68 +16,96 @@ class IptvRepository {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    // Country codes for popular countries
     companion object {
         val COUNTRIES = listOf(
             "all" to "All Countries",
+            "al" to "Albania",
+            "dz" to "Algeria",
             "ar" to "Argentina",
+            "am" to "Armenia",
             "au" to "Australia",
             "at" to "Austria",
+            "az" to "Azerbaijan",
+            "bd" to "Bangladesh",
+            "by" to "Belarus",
             "be" to "Belgium",
             "br" to "Brazil",
+            "bg" to "Bulgaria",
             "ca" to "Canada",
             "cl" to "Chile",
             "cn" to "China",
             "co" to "Colombia",
+            "hr" to "Croatia",
+            "cy" to "Cyprus",
             "cz" to "Czech Republic",
             "dk" to "Denmark",
             "eg" to "Egypt",
+            "ee" to "Estonia",
             "fi" to "Finland",
             "fr" to "France",
+            "ge" to "Georgia",
             "de" to "Germany",
             "gr" to "Greece",
+            "hk" to "Hong Kong",
             "hu" to "Hungary",
+            "is" to "Iceland",
             "in" to "India",
             "id" to "Indonesia",
+            "ir" to "Iran",
+            "iq" to "Iraq",
             "ie" to "Ireland",
             "il" to "Israel",
             "it" to "Italy",
             "jp" to "Japan",
+            "jo" to "Jordan",
+            "kz" to "Kazakhstan",
+            "kr" to "South Korea",
+            "kw" to "Kuwait",
+            "lv" to "Latvia",
+            "lb" to "Lebanon",
+            "lt" to "Lithuania",
+            "lu" to "Luxembourg",
             "my" to "Malaysia",
+            "mt" to "Malta",
             "mx" to "Mexico",
+            "ma" to "Morocco",
             "nl" to "Netherlands",
             "nz" to "New Zealand",
             "ng" to "Nigeria",
             "no" to "Norway",
+            "om" to "Oman",
             "pk" to "Pakistan",
             "pe" to "Peru",
             "ph" to "Philippines",
             "pl" to "Poland",
             "pt" to "Portugal",
+            "qa" to "Qatar",
             "ro" to "Romania",
             "ru" to "Russia",
             "sa" to "Saudi Arabia",
+            "rs" to "Serbia",
             "sg" to "Singapore",
             "sk" to "Slovakia",
+            "si" to "Slovenia",
             "za" to "South Africa",
-            "kr" to "South Korea",
             "es" to "Spain",
             "se" to "Sweden",
             "ch" to "Switzerland",
             "tw" to "Taiwan",
             "th" to "Thailand",
+            "tn" to "Tunisia",
             "tr" to "Turkey",
             "ua" to "Ukraine",
             "ae" to "United Arab Emirates",
             "gb" to "United Kingdom",
             "us" to "United States",
+            "uz" to "Uzbekistan",
             "vn" to "Vietnam"
         )
     }
 
     suspend fun getChannelsByCountry(countryCode: String): List<Channel> = withContext(Dispatchers.IO) {
         if (countryCode == "all") {
-            // Fallback to category-based loading for "all"
             return@withContext emptyList()
         }
         
@@ -117,19 +145,13 @@ class IptvRepository {
         while (line != null) {
             line = line.trim()
             if (line.startsWith("#EXTINF:")) {
-                // Parse metadata
-                // Example: #EXTINF:-1 tvg-id="" tvg-logo="http://logo.png" group-title="News",CNN
                 val info = line.substringAfter("#EXTINF:")
                 val dictionary = parseAttributes(info)
                 currentLogo = dictionary["tvg-logo"]
                 val groupTitle = dictionary["group-title"] ?: category
-                // Split multi-categories (e.g. "Movies;News") and take the first one for simplicity
                 currentCategory = groupTitle.split(";").firstOrNull() ?: category
-                
-                // Name is usually after the last comma
                 currentName = info.substringAfterLast(",").trim()
             } else if (line.isNotEmpty() && !line.startsWith("#")) {
-                // This is the URL
                 if (!currentName.isNullOrEmpty()) {
                     channels.add(
                         Channel(
@@ -152,7 +174,6 @@ class IptvRepository {
 
     private fun parseAttributes(line: String): Map<String, String> {
         val attributes = mutableMapOf<String, String>()
-        // distinct attribute pattern: key="value"
         val regex = Regex("([a-zA-Z0-9-]+)=\"([^\"]*)\"")
         regex.findAll(line).forEach { matchResult ->
             attributes[matchResult.groupValues[1]] = matchResult.groupValues[2]

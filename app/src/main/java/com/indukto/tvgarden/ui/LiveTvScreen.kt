@@ -26,9 +26,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -449,22 +454,58 @@ fun VideoPlayer(
     var isBuffering by remember { mutableStateOf(false) }
     
     val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            playWhenReady = true
-            repeatMode = Player.REPEAT_MODE_ALL
-            addListener(object : Player.Listener {
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    isBuffering = (playbackState == Player.STATE_BUFFERING)
-                    onStateChanged(playbackState)
-                }
-            })
-        }
+        // Optimized for Live Streams (IPTV)
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                30000, // minBufferMs: 30s
+                60000, // maxBufferMs: 60s
+                2500,  // bufferForPlaybackMs: 2.5s
+                5000   // bufferForPlaybackAfterRebufferMs: 5s
+            )
+            .build()
+
+        ExoPlayer.Builder(context)
+            .setLoadControl(loadControl)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                true // Handle audio focus automatically
+            )
+            .build().apply {
+                playWhenReady = true
+                addListener(object : Player.Listener {
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        isBuffering = (playbackState == Player.STATE_BUFFERING)
+                        onStateChanged(playbackState)
+                    }
+                    
+                    override fun onPlayerError(error: PlaybackException) {
+                        // Attempt to recover from errors by re-preparing
+                        // This is common for IPTV streams that timeout
+                        prepare()
+                        play()
+                    }
+                })
+            }
     }
 
     // Update media item when channel changes
     LaunchedEffect(channel) {
         if (channel != null) {
-            val mediaItem = MediaItem.fromUri(channel.streamUrl)
+            val mediaItem = MediaItem.Builder()
+                .setUri(channel.streamUrl)
+                .setLiveConfiguration(
+                    MediaItem.LiveConfiguration.Builder()
+                        .setTargetOffsetMs(20000) // 20s target
+                        .setMinOffsetMs(10000)   // 10s min
+                        .setMaxOffsetMs(40000)   // 40s max
+                        .build()
+                )
+                .setMimeType(MimeTypes.APPLICATION_M3U8) // Force HLS for better sync
+                .build()
+                
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
         } else {

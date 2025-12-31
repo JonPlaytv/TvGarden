@@ -31,11 +31,37 @@ class MainViewModel : ViewModel() {
     private val _selectedCountry = MutableStateFlow("all")
     val selectedCountry: StateFlow<String> = _selectedCountry.asStateFlow()
 
+    private val _selectedChannel = MutableStateFlow<Channel?>(null)
+    val selectedChannel: StateFlow<Channel?> = _selectedChannel.asStateFlow()
+
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
-    private val _selectedChannel = MutableStateFlow<Channel?>(null)
-    val selectedChannel: StateFlow<Channel?> = _selectedChannel.asStateFlow()
+    private val _subtitlesEnabled = MutableStateFlow(true)
+    val subtitlesEnabled: StateFlow<Boolean> = _subtitlesEnabled.asStateFlow()
+
+    private val _autoSkipBroken = MutableStateFlow(true)
+    val autoSkipBroken: StateFlow<Boolean> = _autoSkipBroken.asStateFlow()
+
+    private val brokenChannelUrls = mutableSetOf<String>()
+
+    fun toggleSubtitles() {
+        _subtitlesEnabled.value = !_subtitlesEnabled.value
+    }
+
+    fun toggleAutoSkip() {
+        _autoSkipBroken.value = !_autoSkipBroken.value
+    }
+
+    fun markChannelAsBroken(channel: Channel) {
+        if (_autoSkipBroken.value) {
+            brokenChannelUrls.add(channel.streamUrl)
+            // If the current channel is the one we just marked, move to next
+            if (_selectedChannel.value?.streamUrl == channel.streamUrl) {
+                nextChannel()
+            }
+        }
+    }
 
     fun selectChannel(channel: Channel?) {
         _selectedChannel.value = channel
@@ -46,9 +72,19 @@ class MainViewModel : ViewModel() {
         val current = _selectedChannel.value
         if (currentList.isEmpty()) return
         
-        val currentIndex = currentList.indexOf(current)
-        val nextIndex = if (currentIndex < 0 || currentIndex >= currentList.size - 1) 0 else currentIndex + 1
-        _selectedChannel.value = currentList[nextIndex]
+        var currentIndex = currentList.indexOf(current)
+        var attempts = 0
+        
+        do {
+            currentIndex = if (currentIndex < 0 || currentIndex >= currentList.size - 1) 0 else currentIndex + 1
+            val candidate = currentList[currentIndex]
+            
+            if (!brokenChannelUrls.contains(candidate.streamUrl) || attempts >= currentList.size) {
+                _selectedChannel.value = candidate
+                return
+            }
+            attempts++
+        } while (attempts < currentList.size)
     }
 
     fun previousChannel() {
@@ -56,9 +92,19 @@ class MainViewModel : ViewModel() {
         val current = _selectedChannel.value
         if (currentList.isEmpty()) return
         
-        val currentIndex = currentList.indexOf(current)
-        val prevIndex = if (currentIndex <= 0) currentList.size - 1 else currentIndex - 1
-        _selectedChannel.value = currentList[prevIndex]
+        var currentIndex = currentList.indexOf(current)
+        var attempts = 0
+        
+        do {
+            currentIndex = if (currentIndex <= 0) currentList.size - 1 else currentIndex - 1
+            val candidate = currentList[currentIndex]
+            
+            if (!brokenChannelUrls.contains(candidate.streamUrl) || attempts >= currentList.size) {
+                _selectedChannel.value = candidate
+                return
+            }
+            attempts++
+        } while (attempts < currentList.size)
     }
 
     fun selectCategory(category: String) {

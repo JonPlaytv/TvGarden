@@ -25,6 +25,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -77,16 +80,22 @@ fun LiveTvScreen() {
         }
     }
     
+    val subtitlesEnabled by viewModel.subtitlesEnabled.collectAsState()
+    val autoSkipBroken by viewModel.autoSkipBroken.collectAsState()
+
     // UI States
     var isChannelListVisible by remember { mutableStateOf(false) }
     var isCategoryListVisible by remember { mutableStateOf(false) }
     var isCountryListVisible by remember { mutableStateOf(false) }
+    var isSettingsVisible by remember { mutableStateOf(false) }
     var showChannelInfo by remember { mutableStateOf(false) }
+    var lastSwitchTime by remember { mutableStateOf(0L) }
 
     val playerFocusRequester = remember { FocusRequester() }
     val channelListFocusRequester = remember { FocusRequester() }
     val categoryListFocusRequester = remember { FocusRequester() }
     val countryListFocusRequester = remember { FocusRequester() }
+    val settingsFocusRequester = remember { FocusRequester() }
     
     val channelListState = rememberLazyListState()
     val categoryListState = rememberLazyListState()
@@ -94,10 +103,13 @@ fun LiveTvScreen() {
 
     // Show channel info briefly when channel changes (and sidebar is not open)
     LaunchedEffect(selectedChannel) {
-        if (selectedChannel != null && !isChannelListVisible) {
-            showChannelInfo = true
-            delay(3000) // Show for 3 seconds
-            showChannelInfo = false
+        if (selectedChannel != null) {
+            lastSwitchTime = System.currentTimeMillis()
+            if (!isChannelListVisible) {
+                showChannelInfo = true
+                delay(3000) // Show for 3 seconds
+                showChannelInfo = false
+            }
         }
     }
 
@@ -132,6 +144,17 @@ fun LiveTvScreen() {
                                isChannelListVisible = true
                                return@onKeyEvent true
                            }
+                           
+                           // Open settings on LEFT or MENU key
+                           if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
+                               it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_MENU) {
+                               // ONLY open if NO other sidebars are visible
+                               if (!isChannelListVisible && !isCategoryListVisible && !isCountryListVisible) {
+                                   isSettingsVisible = true
+                                   return@onKeyEvent true
+                               }
+                           }
+
                            // Channel UP (next channel)
                            if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_UP ||
                                it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_CHANNEL_UP ||
@@ -154,6 +177,13 @@ fun LiveTvScreen() {
                     channel = selectedChannel,
                     nextChannel = nextChannel,
                     prevChannel = prevChannel,
+                    subtitlesEnabled = subtitlesEnabled,
+                    isZapping = (System.currentTimeMillis() - lastSwitchTime < 2000), // Consider fast if < 2s
+                    onBroken = { brokenChannel ->
+                        if (autoSkipBroken) {
+                            viewModel.markChannelAsBroken(brokenChannel)
+                        }
+                    },
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -201,11 +231,24 @@ fun LiveTvScreen() {
                                 style = MaterialTheme.typography.titleMedium,
                                 color = Color.White
                             )
-                            Text(
-                                text = channel.category.replaceFirstChar { it.uppercase() },
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Color.White.copy(alpha = 0.7f)
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = channel.category.replaceFirstChar { it.uppercase() },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Color.White.copy(alpha = 0.7f)
+                                )
+                                if (subtitlesEnabled) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "CC",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Black,
+                                        modifier = Modifier
+                                            .background(Color.White, MaterialTheme.shapes.extraSmall)
+                                            .padding(horizontal = 4.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -418,6 +461,71 @@ fun LiveTvScreen() {
                     }
                 }
             }
+
+            // SETTINGS SIDEBAR
+            AnimatedVisibility(
+                visible = isSettingsVisible,
+                enter = slideInHorizontally { -it }, // Comes from the left
+                exit = slideOutHorizontally { -it }
+            ) {
+                 SidebarContainer(
+                    title = "Settings",
+                    isSecondary = true,
+                    modifier = Modifier.width(280.dp)
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .focusRequester(settingsFocusRequester)
+                            .onPreviewKeyEvent {
+                                if (it.type == KeyEventType.KeyDown) {
+                                    if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT || 
+                                        it.key == Key.Back) {
+                                        isSettingsVisible = false
+                                        return@onPreviewKeyEvent true
+                                    }
+                                }
+                                false
+                            }
+                    ) {
+                        SettingsToggleItem(
+                            label = "Subtitles",
+                            isEnabled = subtitlesEnabled,
+                            onToggle = { viewModel.toggleSubtitles() }
+                        )
+                        SettingsToggleItem(
+                            label = "Auto-Skip Broken",
+                            isEnabled = autoSkipBroken,
+                            onToggle = { viewModel.toggleAutoSkip() }
+                        )
+                        
+                        Spacer(modifier = Modifier.weight(1f))
+                        
+                        Text(
+                            text = "Garden TV v1.2",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+                }
+                
+                // Focus Logic for Settings List
+                LaunchedEffect(isSettingsVisible) {
+                    if (isSettingsVisible) {
+                        delay(100)
+                        try {
+                            settingsFocusRequester.requestFocus()
+                        } catch(e: Exception) {}
+                    } else {
+                        delay(100)
+                        try {
+                            playerFocusRequester.requestFocus()
+                        } catch(e: Exception) {}
+                    }
+                }
+            }
         }
     }
 }
@@ -471,6 +579,9 @@ fun VideoPlayer(
     channel: Channel?,
     nextChannel: Channel? = null,
     prevChannel: Channel? = null,
+    subtitlesEnabled: Boolean = true,
+    isZapping: Boolean = false,
+    onBroken: (Channel) -> Unit = {},
     modifier: Modifier = Modifier,
     onStateChanged: (Int) -> Unit = {}
 ) {
@@ -514,6 +625,25 @@ fun VideoPlayer(
             }
     }
 
+    // Health Check Logic: If buffering for > 5 seconds and not zapping, mark as broken
+    LaunchedEffect(isBuffering, channel, isZapping) {
+        if (isBuffering && channel != null && !isZapping) {
+            delay(5000) // Wait for 5 seconds
+            if (isBuffering) {
+                // Still buffering after 5s and not fast switching
+                onBroken(channel)
+            }
+        }
+    }
+
+    // Subtitles Toggle
+    LaunchedEffect(subtitlesEnabled) {
+        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subtitlesEnabled)
+            .build()
+    }
+
     // Helper to create MediaItem for Live Stream
     fun createMediaItem(c: Channel): MediaItem {
         return MediaItem.Builder()
@@ -546,8 +676,24 @@ fun VideoPlayer(
         }
     }
 
-    DisposableEffect(Unit) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> {
+                    exoPlayer.pause()
+                }
+                Lifecycle.Event.ON_RESUME -> {
+                    exoPlayer.play()
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
             exoPlayer.release()
         }
     }
@@ -652,5 +798,51 @@ fun CategoryListItem(
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(12.dp)
         )
+    }
+}
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun SettingsToggleItem(
+    label: String,
+    isEnabled: Boolean,
+    onToggle: () -> Unit
+) {
+    Surface(
+        onClick = onToggle,
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.White.copy(alpha = 0.05f),
+            contentColor = Color.White,
+            focusedContainerColor = MaterialTheme.colorScheme.inverseSurface,
+            focusedContentColor = MaterialTheme.colorScheme.inverseOnSurface
+        ),
+        shape = ClickableSurfaceDefaults.shape(shape = MaterialTheme.shapes.small),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(text = label, style = MaterialTheme.typography.bodyMedium)
+            
+            Box(
+                modifier = Modifier
+                    .size(width = 40.dp, height = 24.dp)
+                    .background(
+                        if (isEnabled) MaterialTheme.colorScheme.primary 
+                        else Color.White.copy(alpha = 0.2f),
+                        MaterialTheme.shapes.extraLarge
+                    )
+                    .padding(horizontal = 4.dp),
+                contentAlignment = if (isEnabled) Alignment.CenterEnd else Alignment.CenterStart
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(16.dp)
+                        .background(Color.White, MaterialTheme.shapes.extraLarge)
+                )
+            }
+        }
     }
 }

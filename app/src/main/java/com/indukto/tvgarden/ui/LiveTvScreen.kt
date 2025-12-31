@@ -46,20 +46,25 @@ fun LiveTvScreen() {
     val viewModel: MainViewModel = viewModel()
     val channels by viewModel.channels.collectAsState()
     val categories by viewModel.categories.collectAsState()
+    val countries by viewModel.countries.collectAsState()
     val selectedChannel by viewModel.selectedChannel.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
+    val selectedCountry by viewModel.selectedCountry.collectAsState()
     
     // UI States
     var isChannelListVisible by remember { mutableStateOf(false) }
     var isCategoryListVisible by remember { mutableStateOf(false) }
+    var isCountryListVisible by remember { mutableStateOf(false) }
     var showChannelInfo by remember { mutableStateOf(false) }
 
     val playerFocusRequester = remember { FocusRequester() }
     val channelListFocusRequester = remember { FocusRequester() }
     val categoryListFocusRequester = remember { FocusRequester() }
+    val countryListFocusRequester = remember { FocusRequester() }
     
     val channelListState = rememberLazyListState()
     val categoryListState = rememberLazyListState()
+    val countryListState = rememberLazyListState()
 
     // Show channel info briefly when channel changes (and sidebar is not open)
     LaunchedEffect(selectedChannel) {
@@ -157,7 +162,8 @@ fun LiveTvScreen() {
                             contentDescription = null,
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
-                                .size(48.dp)
+                                .height(48.dp)
+                                .aspectRatio(16f / 9f)
                                 .background(Color.White.copy(alpha = 0.1f), MaterialTheme.shapes.small)
                                 .padding(4.dp)
                         )
@@ -194,26 +200,7 @@ fun LiveTvScreen() {
             ) {
                 SidebarContainer(
                     title = selectedCategory,
-                    modifier = Modifier
-                        .width(300.dp)
-                        .onKeyEvent {
-                            // Close Channel List on LEFT or BACK
-                            if (it.type == KeyEventType.KeyUp) {
-                                if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || 
-                                    it.key == Key.Back) {
-                                    isChannelListVisible = false
-                                    isCategoryListVisible = false
-                                    playerFocusRequester.requestFocus()
-                                    return@onKeyEvent true
-                                }
-                                // Open Categories on RIGHT
-                                if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                                    isCategoryListVisible = true
-                                    return@onKeyEvent true
-                                }
-                            }
-                            false
-                        }
+                    modifier = Modifier.width(300.dp)
                 ) {
                     LazyColumn(
                         state = channelListState,
@@ -221,6 +208,21 @@ fun LiveTvScreen() {
                         modifier = Modifier
                             .fillMaxSize()
                             .focusRequester(channelListFocusRequester)
+                            .onPreviewKeyEvent {
+                                if (it.type == KeyEventType.KeyDown) {
+                                    if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || 
+                                        it.key == Key.Back) {
+                                        isChannelListVisible = false
+                                        return@onPreviewKeyEvent true
+                                    }
+                                    // Open Categories on RIGHT
+                                    if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                                        isCategoryListVisible = true
+                                        return@onPreviewKeyEvent true
+                                    }
+                                }
+                                false
+                            }
                     ) {
                         items(channels) { channel ->
                             ChannelListItem(
@@ -246,6 +248,12 @@ fun LiveTvScreen() {
                                  channelListState.scrollToItem(index)
                              }
                          } catch (e: Exception) {}
+                    } else {
+                        // When channel list closes, return focus to video player
+                        delay(100)
+                        try {
+                            playerFocusRequester.requestFocus()
+                        } catch(e: Exception) {}
                     }
                 }
             }
@@ -259,20 +267,7 @@ fun LiveTvScreen() {
                  SidebarContainer(
                     title = "Categories",
                     isSecondary = true,
-                    modifier = Modifier
-                        .width(200.dp)
-                        .onKeyEvent {
-                             // Close Category List on LEFT or BACK - return to channel list only
-                            if (it.type == KeyEventType.KeyUp) {
-                                if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || 
-                                    it.key == Key.Back) {
-                                    isCategoryListVisible = false
-                                    // Return focus to channel list, NOT to video
-                                    return@onKeyEvent true
-                                }
-                            }
-                            false
-                        }
+                    modifier = Modifier.width(200.dp)
                 ) {
                     LazyColumn(
                         state = categoryListState,
@@ -280,6 +275,23 @@ fun LiveTvScreen() {
                         modifier = Modifier
                             .fillMaxSize()
                             .focusRequester(categoryListFocusRequester)
+                            .onPreviewKeyEvent {
+                                if (it.type == KeyEventType.KeyDown) {
+                                    // Close Category List on LEFT or BACK - return to channel list only
+                                    if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || 
+                                        it.key == Key.Back) {
+                                        isCategoryListVisible = false
+                                        // Focus will be returned by LaunchedEffect
+                                        return@onPreviewKeyEvent true
+                                    }
+                                    // Open Countries on RIGHT
+                                    if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                                        isCountryListVisible = true
+                                        return@onPreviewKeyEvent true
+                                    }
+                                }
+                                false
+                            }
                     ) {
                         items(categories) { category ->
                             CategoryListItem(
@@ -298,15 +310,83 @@ fun LiveTvScreen() {
                     if (isCategoryListVisible) {
                         delay(100)
                         try {
-                            categoryListFocusRequester.requestFocus()
-                            val index = categories.indexOf(selectedCategory).coerceAtLeast(0)
-                            categoryListState.scrollToItem(index)
+                            if (!isCountryListVisible) {
+                                categoryListFocusRequester.requestFocus()
+                                val index = categories.indexOf(selectedCategory).coerceAtLeast(0)
+                                categoryListState.scrollToItem(index)
+                            }
                         } catch(e: Exception) {}
                     } else {
                         // When category list closes, return focus to channel list
                         delay(50)
                         try {
                             channelListFocusRequester.requestFocus()
+                        } catch(e: Exception) {}
+                    }
+                }
+            }
+
+            // COUNTRY LIST SIDEBAR
+            AnimatedVisibility(
+                visible = isCountryListVisible,
+                enter = slideInHorizontally { it },
+                exit = slideOutHorizontally { it }
+            ) {
+                 SidebarContainer(
+                    title = "Country",
+                    isSecondary = true,
+                    modifier = Modifier.width(200.dp)
+                ) {
+                    LazyColumn(
+                        state = countryListState,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .focusRequester(countryListFocusRequester)
+                            .onPreviewKeyEvent {
+                                if (it.type == KeyEventType.KeyDown) {
+                                    // Close Country List on LEFT or BACK - return to category list
+                                    if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || 
+                                        it.key == Key.Back) {
+                                        isCountryListVisible = false
+                                        // Focus will be returned by LaunchedEffect
+                                        return@onPreviewKeyEvent true
+                                    }
+                                }
+                                false
+                            }
+                    ) {
+                        items(countries) { (code, name) ->
+                            CategoryListItem(
+                                name = name,
+                                isSelected = code == selectedCountry,
+                                onClick = {
+                                    viewModel.selectCountry(code)
+                                    // Close all sidebars after country selection
+                                    isCountryListVisible = false
+                                    isCategoryListVisible = false
+                                    isChannelListVisible = false
+                                    playerFocusRequester.requestFocus()
+                                }
+                            )
+                        }
+                    }
+                }
+                
+                // Focus Logic for Country List
+                LaunchedEffect(isCountryListVisible) {
+                    if (isCountryListVisible) {
+                        delay(100)
+                        try {
+                            countryListFocusRequester.requestFocus()
+                            val index = countries.indexOfFirst { it.first == selectedCountry }.coerceAtLeast(0)
+                            countryListState.scrollToItem(index)
+                        } catch(e: Exception) {}
+                    } else {
+                        // When country list closes, return focus to category list
+                        delay(50)
+                        try {
+                            categoryListFocusRequester.requestFocus()
                         } catch(e: Exception) {}
                     }
                 }
@@ -455,7 +535,8 @@ fun ChannelListItem(
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
-                    .size(40.dp)
+                    .height(40.dp)
+                    .aspectRatio(16f / 9f)
                     .background(Color.White.copy(alpha = 0.1f), MaterialTheme.shapes.small)
                     .padding(4.dp)
             )

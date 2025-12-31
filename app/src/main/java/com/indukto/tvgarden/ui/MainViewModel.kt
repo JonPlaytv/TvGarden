@@ -22,8 +22,14 @@ class MainViewModel : ViewModel() {
     private val _categories = MutableStateFlow<List<String>>(emptyList())
     val categories: StateFlow<List<String>> = _categories.asStateFlow()
     
+    private val _countries = MutableStateFlow(IptvRepository.COUNTRIES)
+    val countries: StateFlow<List<Pair<String, String>>> = _countries.asStateFlow()
+    
     private val _selectedCategory = MutableStateFlow("All")
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
+    
+    private val _selectedCountry = MutableStateFlow("all")
+    val selectedCountry: StateFlow<String> = _selectedCountry.asStateFlow()
 
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
@@ -60,12 +66,18 @@ class MainViewModel : ViewModel() {
         filterChannels()
     }
 
+    fun selectCountry(countryCode: String) {
+        _selectedCountry.value = countryCode
+        _selectedCategory.value = "All"
+        loadChannels()
+    }
+
     private fun filterChannels() {
         val cat = _selectedCategory.value
         if (cat == "All") {
             _channels.value = _allChannels.value
         } else {
-            _channels.value = _allChannels.value.filter { it.category == cat }
+            _channels.value = _allChannels.value.filter { it.category.equals(cat, ignoreCase = true) }
         }
     }
 
@@ -76,19 +88,31 @@ class MainViewModel : ViewModel() {
     private fun loadChannels() {
         viewModelScope.launch {
             _loading.value = true
+            _allChannels.value = emptyList()
+            _channels.value = emptyList()
+            _selectedChannel.value = null
+            
             try {
-                // Fetch all categories in PARALLEL for faster loading
-                val deferredNews = async { repository.getChannels("news") }
-                val deferredMovies = async { repository.getChannels("movies") }
-                val deferredMusic = async { repository.getChannels("music") }
-                val deferredKids = async { repository.getChannels("kids") }
-                val deferredEntertainment = async { repository.getChannels("entertainment") }
-                val deferredSports = async { repository.getChannels("sports") }
+                val country = _selectedCountry.value
+                val combined: List<Channel>
                 
-                // Await all in parallel
-                val results = awaitAll(deferredNews, deferredMovies, deferredMusic, deferredKids, deferredEntertainment, deferredSports)
+                if (country == "all") {
+                    // Fetch by category in PARALLEL for faster loading
+                    val deferredNews = async { repository.getChannels("news") }
+                    val deferredMovies = async { repository.getChannels("movies") }
+                    val deferredMusic = async { repository.getChannels("music") }
+                    val deferredKids = async { repository.getChannels("kids") }
+                    val deferredEntertainment = async { repository.getChannels("entertainment") }
+                    val deferredSports = async { repository.getChannels("sports") }
+                    
+                    // Await all in parallel
+                    val results = awaitAll(deferredNews, deferredMovies, deferredMusic, deferredKids, deferredEntertainment, deferredSports)
+                    combined = results.flatten().shuffled()
+                } else {
+                    // Fetch by country
+                    combined = repository.getChannelsByCountry(country).shuffled()
+                }
                 
-                val combined = results.flatten().shuffled()
                 _allChannels.value = combined
                 _channels.value = combined
                 
@@ -108,4 +132,3 @@ class MainViewModel : ViewModel() {
         }
     }
 }
-

@@ -52,6 +52,7 @@ fun LiveTvScreen() {
     // UI States
     var isChannelListVisible by remember { mutableStateOf(false) }
     var isCategoryListVisible by remember { mutableStateOf(false) }
+    var showChannelInfo by remember { mutableStateOf(false) }
 
     val playerFocusRequester = remember { FocusRequester() }
     val channelListFocusRequester = remember { FocusRequester() }
@@ -59,6 +60,15 @@ fun LiveTvScreen() {
     
     val channelListState = rememberLazyListState()
     val categoryListState = rememberLazyListState()
+
+    // Show channel info briefly when channel changes (and sidebar is not open)
+    LaunchedEffect(selectedChannel) {
+        if (selectedChannel != null && !isChannelListVisible) {
+            showChannelInfo = true
+            delay(3000) // Show for 3 seconds
+            showChannelInfo = false
+        }
+    }
 
     // Initial focus to player
     LaunchedEffect(Unit) {
@@ -83,12 +93,26 @@ fun LiveTvScreen() {
                     .focusRequester(playerFocusRequester)
                     .focusable()
                     .onKeyEvent {
-                       // Open sidebar on RIGHT or CENTER
                        if (it.type == KeyEventType.KeyUp) {
+                           // Open sidebar on RIGHT or CENTER/ENTER
                            if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ||
                                it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
                                it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER) {
                                isChannelListVisible = true
+                               return@onKeyEvent true
+                           }
+                           // Channel UP (next channel)
+                           if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_UP ||
+                               it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_CHANNEL_UP ||
+                               it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_PAGE_UP) {
+                               viewModel.previousChannel()
+                               return@onKeyEvent true
+                           }
+                           // Channel DOWN (previous channel)
+                           if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
+                               it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_CHANNEL_DOWN ||
+                               it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_PAGE_DOWN) {
+                               viewModel.nextChannel()
                                return@onKeyEvent true
                            }
                        }
@@ -100,6 +124,58 @@ fun LiveTvScreen() {
                     modifier = Modifier.fillMaxSize(),
                     onStateChanged = { /* Handle buffering if needed here */ }
                 )
+            }
+        }
+
+        // LAYER 2: Channel Info Overlay (shows briefly when switching channels)
+        AnimatedVisibility(
+            visible = showChannelInfo && !isChannelListVisible && selectedChannel != null,
+            enter = slideInHorizontally { -it } + androidx.compose.animation.fadeIn(),
+            exit = slideOutHorizontally { -it } + androidx.compose.animation.fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(24.dp)
+        ) {
+            selectedChannel?.let { channel ->
+                Box(
+                    modifier = Modifier
+                        .width(320.dp)
+                        .background(
+                            color = Color.Black.copy(alpha = 0.85f),
+                            shape = MaterialTheme.shapes.medium
+                        )
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(channel.logoUrl)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .background(Color.White.copy(alpha = 0.1f), MaterialTheme.shapes.small)
+                                .padding(4.dp)
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text(
+                                text = channel.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.White
+                            )
+                            Text(
+                                text = channel.category.replaceFirstChar { it.uppercase() },
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                }
             }
         }
 

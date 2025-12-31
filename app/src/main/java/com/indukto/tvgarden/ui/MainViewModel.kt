@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.indukto.tvgarden.data.Channel
 import com.indukto.tvgarden.data.IptvRepository
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,8 +16,6 @@ class MainViewModel : ViewModel() {
 
     private val _allChannels = MutableStateFlow<List<Channel>>(emptyList())
     
-    // Derived state for filtered channels would normally be better, but lets keep it simple for now
-    // We will just expose the filtered list as 'channels' to not break existing code much
     private val _channels = MutableStateFlow<List<Channel>>(emptyList())
     val channels: StateFlow<List<Channel>> = _channels.asStateFlow()
     
@@ -33,6 +33,26 @@ class MainViewModel : ViewModel() {
 
     fun selectChannel(channel: Channel?) {
         _selectedChannel.value = channel
+    }
+
+    fun nextChannel() {
+        val currentList = _channels.value
+        val current = _selectedChannel.value
+        if (currentList.isEmpty()) return
+        
+        val currentIndex = currentList.indexOf(current)
+        val nextIndex = if (currentIndex < 0 || currentIndex >= currentList.size - 1) 0 else currentIndex + 1
+        _selectedChannel.value = currentList[nextIndex]
+    }
+
+    fun previousChannel() {
+        val currentList = _channels.value
+        val current = _selectedChannel.value
+        if (currentList.isEmpty()) return
+        
+        val currentIndex = currentList.indexOf(current)
+        val prevIndex = if (currentIndex <= 0) currentList.size - 1 else currentIndex - 1
+        _selectedChannel.value = currentList[prevIndex]
     }
 
     fun selectCategory(category: String) {
@@ -57,13 +77,18 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch {
             _loading.value = true
             try {
-                // Fetching a few categories
-                val news = repository.getChannels("news")
-                val movies = repository.getChannels("movies")
-                val music = repository.getChannels("music")
-                val kids = repository.getChannels("kids")
+                // Fetch all categories in PARALLEL for faster loading
+                val deferredNews = async { repository.getChannels("news") }
+                val deferredMovies = async { repository.getChannels("movies") }
+                val deferredMusic = async { repository.getChannels("music") }
+                val deferredKids = async { repository.getChannels("kids") }
+                val deferredEntertainment = async { repository.getChannels("entertainment") }
+                val deferredSports = async { repository.getChannels("sports") }
                 
-                val combined = (news + movies + music + kids).shuffled()
+                // Await all in parallel
+                val results = awaitAll(deferredNews, deferredMovies, deferredMusic, deferredKids, deferredEntertainment, deferredSports)
+                
+                val combined = results.flatten().shuffled()
                 _allChannels.value = combined
                 _channels.value = combined
                 
@@ -83,3 +108,4 @@ class MainViewModel : ViewModel() {
         }
     }
 }
+

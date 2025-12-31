@@ -258,15 +258,16 @@ fun LiveTvScreen() {
             ) {
                  SidebarContainer(
                     title = "Categories",
+                    isSecondary = true,
                     modifier = Modifier
                         .width(200.dp)
                         .onKeyEvent {
-                             // Close Category List on LEFT or BACK
+                             // Close Category List on LEFT or BACK - return to channel list only
                             if (it.type == KeyEventType.KeyUp) {
                                 if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || 
                                     it.key == Key.Back) {
                                     isCategoryListVisible = false
-                                    channelListFocusRequester.requestFocus()
+                                    // Return focus to channel list, NOT to video
                                     return@onKeyEvent true
                                 }
                             }
@@ -301,6 +302,12 @@ fun LiveTvScreen() {
                             val index = categories.indexOf(selectedCategory).coerceAtLeast(0)
                             categoryListState.scrollToItem(index)
                         } catch(e: Exception) {}
+                    } else {
+                        // When category list closes, return focus to channel list
+                        delay(50)
+                        try {
+                            channelListFocusRequester.requestFocus()
+                        } catch(e: Exception) {}
                     }
                 }
             }
@@ -312,15 +319,30 @@ fun LiveTvScreen() {
 fun SidebarContainer(
     title: String,
     modifier: Modifier = Modifier,
+    isSecondary: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    val backgroundColor = if (isSecondary) {
+        // Solid color for secondary (category) sidebar - no gradient clash
+        Color.Black.copy(alpha = 0.92f)
+    } else {
+        // Keep null for primary to use gradient
+        null
+    }
+    
     Box(
         modifier = modifier
             .fillMaxHeight()
-            .background(
-                Brush.horizontalGradient(
-                    colors = listOf(Color.Black.copy(alpha = 0.8f), Color.Black.copy(alpha = 0.95f))
-                )
+            .then(
+                if (backgroundColor != null) {
+                    Modifier.background(backgroundColor)
+                } else {
+                    Modifier.background(
+                        Brush.horizontalGradient(
+                            colors = listOf(Color.Black.copy(alpha = 0.6f), Color.Black.copy(alpha = 0.92f))
+                        )
+                    )
+                }
             )
             .padding(16.dp)
     ) {
